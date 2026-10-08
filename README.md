@@ -101,10 +101,16 @@
 space-bunny 是 low→max，muse 是 minimal→xhigh）——宿主据此生成每个模型的思考菜单。
 
 `muse-spark-*` 在 Zen 上**只答 `/v1/responses`**（OpenAI Responses 线格式），放进
-chat provider 就是选择器里的坏项，因此单独成列；loopback 对该 lane 只强制
-`stream: true`，其余原样透传到 Zen 自己的 `/v1/responses`（关联头按 `input` 字段
-派生，与 chat 的 `messages` 对同一对话得到同一 `ses_`）。`jev-*`（仅 `/systemone`）
-仍不声明。
+chat provider 就是选择器里的坏项，因此单独成列；loopback 对该 lane 强制 `stream: true`
+并补上同一套门禁工具（**扁平** Responses 形状 `{type,name,description,parameters}`，
+不是 chat 的嵌套形状），其余原样透传到 Zen 自己的 `/v1/responses`（关联头按 `input`
+字段派生，与 chat 的 `messages` 对同一对话得到同一 `ses_`）。
+
+> ⚠️ 这条 lane 的模型有**地区限制**：直连（中国大陆出口）会得到
+> `403 RegionError: This model is not available in your country`，必须走非大陆出口（也就是
+> 上文「上游代理」里那条代理路线）。chat 通道的免费模型不受此限。
+
+`jev-*`（仅 `/systemone`）仍不声明。
 
 目录**自动跟踪**：catalog 每次真实变化（含 5 分钟定时刷新）触发 onChange → 立即
 改写 manifest → 一次重载后即静默收敛（启动从磁盘播种，同步是 no-op，不会循环）。
@@ -117,8 +123,12 @@ chat provider 就是选择器里的坏项，因此单独成列；loopback 对该
 - **CLI 一致的伪装头**——`user-agent: opencode/1.18.31 (…)`、`x-opencode-client: cli`，
   会话/请求/项目三族关联头；session id 为 OpenCode 规范形状 `ses_+12hex+14base62`
   （免费通道 403 门禁的形状校验），按**对话首条用户消息**派生、同一对话稳定。
-- **免费通道体门禁**——请求体必须流式，且 tools 含名为 `bash`、`read` 的占位工具；
-  纯对话时补 `tool_choice: "none"`，已有真实工具则只补齐缺失项。
+- **免费通道体门禁（两条 lane 都要）**——请求体必须流式，且 tools 里必须有名为 `bash`、
+  `read` 的函数工具（实测 2026-10-08 在 `/v1/responses` 上重新确认：缺任一个就是
+  `403 FreeTierError: OpenCode's free tier can only be used from within OpenCode`）。
+  chat 通道：纯对话补 `tool_choice: "none"`，已有真实工具则只补齐缺失项；responses 通道：
+  门禁工具用扁平形状，且**不写 `tool_choice`**——该通道只接受 `"auto"`，写 `"none"` 会被
+  `400 only "auto" is supported for tool_choice` 拒绝。已有工具时两条 lane 都只补齐缺失项。
 - **思考档位归一**——档位由宿主写（宿主读取声明的 `thinkingLevels` 生成菜单并写入
   `reasoning_effort`），代理层把 `off`/缺失/非法值规范成 `"none"`（该通道唯一能真正
   关掉 always-think 模型的写法），合法档位原样透传。

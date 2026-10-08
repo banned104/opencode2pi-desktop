@@ -450,13 +450,16 @@ async function handleUpstream(req, res, upstreamPath) {
     return;
   }
 
-  // Lane shaping — chat: force streaming, normalize reasoning_effort, inject
-  // the bash/read gate tools; responses: force streaming only (muse-spark is
-  // served natively by Zen's own /v1/responses). Everything else the host
-  // sent is forwarded untouched.
+  // Lane shaping — both lanes force streaming and satisfy the free-lane body
+  // gate (function tools named bash AND read; re-probed on /v1/responses
+  // 2026-10-08, where the same FreeTierError appeared until the gate tools were
+  // present):
+  //   chat      -> buildUpstreamBody (stream, reasoning_effort, gate tools)
+  //   responses -> the gate tools in the flat Responses shape, and no
+  //                tool_choice override: that provider only accepts "auto"
   const isResponsesLane = upstreamPath.endsWith('/responses');
   const body = isResponsesLane
-    ? { ...hostBody, stream: true }
+    ? zen.ensureFreeLaneShape({ ...hostBody, stream: true }, { dialect: 'responses' })
     : zen.buildUpstreamBody(hostBody);
   const ids = zen.deriveRequestIDsFromWire(body);
 
