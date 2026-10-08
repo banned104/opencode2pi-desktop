@@ -62,6 +62,12 @@ const COMMANDS = {
 };
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const UPSTREAM_HEADER_TIMEOUT_MS = 60_000;
+/**
+ * How long the transport may spend waiting out failed proxy dials before it
+ * reports `ENOROUTE`. Deliberately below the header timeout above, so the chat
+ * error carries the transport's own explanation instead of a bare abort.
+ */
+const UPSTREAM_WAIT_BUDGET_MS = 35_000;
 
 let pi;
 let packageRoot = '';
@@ -288,6 +294,9 @@ function createTransport() {
       env: process.env,
       log,
     }),
+    // Once a proxy candidate exists the transport never dials directly (see
+    // dialList); this is only the ceiling for waiting on failed dials.
+    waitBudgetMs: UPSTREAM_WAIT_BUDGET_MS,
     log,
   });
 }
@@ -643,8 +652,14 @@ async function toast(message, kind) {
 async function routeSummary() {
   const snapshot = await routeSnapshot();
   if (snapshot.status !== 'ready') return '上游 未就绪';
-  const active = snapshot.active;
-  return `上游 ${active?.url ? `${active.url}（${active.source}）` : `直连（${snapshot.mode}）`}`;
+  // `planned` is where the *next* request goes; `active` is only whatever
+  // answered last, so it is stale right after a setting change.
+  const route = snapshot.planned ?? snapshot.active;
+  if (!route) return `上游 未就绪（${snapshot.mode}）`;
+  if (!route.url) return `上游 直连（${snapshot.mode}）`;
+  const last = snapshot.active;
+  const stale = last && (last.url ?? null) !== route.url ? `，上次走 ${last.url ?? '直连'}` : '';
+  return `上游 ${route.url}（${route.source}）${stale}`;
 }
 
 function registerCommands() {
